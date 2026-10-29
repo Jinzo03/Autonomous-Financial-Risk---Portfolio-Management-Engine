@@ -1,4 +1,5 @@
 from datetime import timedelta
+from pathlib import Path
 from feast import (
     Entity,
     Field,
@@ -19,7 +20,8 @@ ticker_entity = Entity(
 # Source pointing to our Gold/Silver storage
 batch_source = FileSource(
     name="market_risk_source",
-    path="data/silver/market_risk_features.parquet",
+    # Resolve from the project root, not the Feast repository directory.
+    path=str(Path(__file__).resolve().parents[3] / "data" / "silver" / "market_risk_features.parquet"),
     timestamp_field="timestamp",
 )
 
