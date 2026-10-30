@@ -1,6 +1,7 @@
 financial-engine/venv
 financial-engine/__pycache__
 financial-engine/data
+financial-engine/mlartifacts/
 financial-engine/src/__pycache__
 financial-engine/src/data_pipeline/feast_repo/data/online_store.db
 financial-engine/src/data_pipeline/feast_repo/data/registry.db
@@ -8,3 +9,4 @@ financial-engine/src/data_pipeline/__pycache__/__init__.cpython-310.pyc
 financial-engine/src/data_pipeline/__pycache__/ingest.cpython-310.pyc
 financial-engine/src/data_pipeline/__pycache__/transform.cpython-310.pyc
 financial-engine/src/data_pipeline/__pycache__/validate.cpython-310.pyc
+financial-engine/src/ml_pipeline/ml_artifacts
