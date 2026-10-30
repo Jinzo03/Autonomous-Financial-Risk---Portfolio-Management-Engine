@@ -6,14 +6,18 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
 import mlflow
 import mlflow.xgboost
+from pathlib import Path
 
-def train_risk_model(data_path: str = "data/silver/market_risk_features.parquet"):
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def train_risk_model(data_path: str | os.PathLike = PROJECT_ROOT / "data" / "silver" / "market_risk_features.parquet"):
     """Trains an XGBoost risk model and logs metrics/artifacts to MLflow."""
     # Set MLflow experiment target
     mlflow.set_experiment("market_risk_assessment")
     
     # Load dataset generated during DataOps phase
-    df = pd.read_parquet(data_path)
+    df = pd.read_parquet(Path(data_path).expanduser().resolve())
     
     # Feature engineering: create binary target variable (High Risk if composite_risk > 0.08)
     df["target_high_risk"] = (df["composite_risk_feature"] > 0.08).astype(int)
