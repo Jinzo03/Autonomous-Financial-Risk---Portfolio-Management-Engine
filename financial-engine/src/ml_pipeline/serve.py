@@ -26,12 +26,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BASE_DIR.parent.parent
 
-FEAST_REPO_PATH = Path(
-    os.getenv(
-        "FEAST_REPO_PATH",
-        "src/data_pipeline/feast_repo"
-    )
+_feast_repo_setting = Path(
+    os.getenv("FEAST_REPO_PATH", "src/data_pipeline/feast_repo")
+).expanduser()
+FEAST_REPO_PATH = (
+    _feast_repo_setting
+    if _feast_repo_setting.is_absolute()
+    else PROJECT_ROOT / _feast_repo_setting
 ).resolve()
 
 MLFLOW_TRACKING_URI = os.getenv(
