@@ -1,10 +1,14 @@
 import json
-from pathlib import Path
-from typing import List, Dict, Any
+import logging
+from typing import Any
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-def generate_mock_sec_filings() -> List[Dict[str, Any]]:
-    """Generates sample unstructured financial disclosures."""
+logger = logging.getLogger(__name__)
+
+
+def generate_mock_sec_filings() -> list[dict[str, str]]:
+    """Return synthetic disclosure examples for local development and demos."""
     return [
         {
             "ticker": "AAPL",
@@ -38,30 +42,52 @@ def generate_mock_sec_filings() -> List[Dict[str, Any]]:
         }
     ]
 
-def prepare_document_chunks(chunk_size: int = 250, chunk_overlap: int = 40) -> List[Dict[str, Any]]:
-    """Splits raw text into metadata-rich chunks for vector embedding."""
+def prepare_document_chunks(
+    chunk_size: int = 250,
+    chunk_overlap: int = 40,
+) -> list[dict[str, Any]]:
+    """Split demo disclosures into chunks with stable IDs and source metadata."""
+    if chunk_size < 1:
+        raise ValueError("chunk_size must be a positive integer")
+    if not 0 <= chunk_overlap < chunk_size:
+        raise ValueError("chunk_overlap must be between 0 and chunk_size - 1")
+
     docs = generate_mock_sec_filings()
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        separators=["\n\n", "\n", ". ", " "]
+        separators=["\n\n", "\n", ". ", " "],
+        add_start_index=True,
     )
-    
+
     chunked_records = []
     for doc in docs:
-        splits = text_splitter.split_text(doc["content"])
-        for idx, split_text in enumerate(splits):
+        source_metadata = {
+            "ticker": doc["ticker"],
+            "doc_id": doc["doc_id"],
+            "section": doc["section"],
+        }
+        splits = text_splitter.create_documents(
+            [doc["content"]],
+            metadatas=[source_metadata],
+        )
+        for idx, split in enumerate(splits):
             chunked_records.append({
-                "chunk_id": f"{doc['doc_id']}_chunk_{idx}",
-                "ticker": doc["ticker"],
-                "doc_id": doc["doc_id"],
-                "section": doc["section"],
-                "text": split_text
+                "chunk_id": f"{doc['doc_id']}:chunk:{idx}",
+                "chunk_index": idx,
+                "start_index": split.metadata["start_index"],
+                **split.metadata,
+                "text": split.page_content,
             })
-            
-    print(f"[LLMOps] Produced {len(chunked_records)} text chunks from {len(docs)} input documents.")
+
+    logger.info(
+        "Produced %d chunks from %d synthetic disclosure examples.",
+        len(chunked_records),
+        len(docs),
+    )
     return chunked_records
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
     chunks = prepare_document_chunks()
     print("Sample Chunk Payload:", json.dumps(chunks[0], indent=2))

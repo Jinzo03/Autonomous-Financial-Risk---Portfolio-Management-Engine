@@ -1,46 +1,41 @@
+"""Small end-to-end checks for document indexing and filtered retrieval."""
+
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-# Allow direct execution from the tests directory as well as from the project root.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.llm_pipeline.ingest_docs import prepare_document_chunks
 from src.llm_pipeline.rag_engine import FinancialRAGEngine
+from src.llm_pipeline.vector_store import VectorStoreManager
 
-def test_rag_retrieval():
-    rag = FinancialRAGEngine()
-    try:
-        print("=== Test 1: NVDA Export Control Query ===")
-        results_nvda = rag.retrieve_context(
-            "GPU export constraints and regulations", ticker="NVDA"
-        )
-        for doc in results_nvda:
-            print(f"Score: {doc['score']} | {doc['doc_id']} | Text: {doc['text']}")
 
-        print("\n=== Test 2: AAPL Supply Chain Query ===")
-        results_aapl = rag.retrieve_context(
-            "semiconductor component shortages", ticker="AAPL"
-        )
-        for doc in results_aapl:
-            print(f"Score: {doc['score']} | {doc['doc_id']} | Text: {doc['text']}")
-    finally:
-        rag.close()
+def test_rag_retrieval() -> None:
+    chunks = prepare_document_chunks()
+    with TemporaryDirectory(prefix="financial-rag-test-") as storage_path:
+        with VectorStoreManager(storage_path=storage_path) as vector_store:
+            assert vector_store.index_chunks(chunks) == len(chunks)
+
+        with FinancialRAGEngine(storage_path=storage_path) as rag:
+            nvda_results = rag.retrieve_context(
+                "GPU export constraints and regulations",
+                ticker="nvda",
+            )
+            aapl_results = rag.retrieve_context(
+                "semiconductor component shortages",
+                ticker="AAPL",
+            )
+
+            assert nvda_results
+            assert all(result["ticker"] == "NVDA" for result in nvda_results)
+            assert nvda_results[0]["doc_id"] == "NVDA-2026-10K"
+            assert aapl_results
+            assert all(result["ticker"] == "AAPL" for result in aapl_results)
+            assert "semiconductor" in aapl_results[0]["text"].lower()
+
 
 if __name__ == "__main__":
-    rag = FinancialRAGEngine()
-    try:
-        print("=== Test 1: NVDA Export Control Query ===")
-        results_nvda = rag.retrieve_context(
-            "GPU export constraints and regulations", ticker="NVDA"
-        )
-        for doc in results_nvda:
-            print(f"Score: {doc['score']} | {doc['doc_id']} | Text: {doc['text']}")
-
-        print("\n=== Test 2: AAPL Supply Chain Query ===")
-        results_aapl = rag.retrieve_context(
-            "semiconductor component shortages", ticker="AAPL"
-        )
-        for doc in results_aapl:
-            print(f"Score: {doc['score']} | {doc['doc_id']} | Text: {doc['text']}")
-    finally:
-        rag.close()
+    test_rag_retrieval()
+    print("RAG indexing and retrieval checks passed.")
