@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import List, Dict, Any
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
@@ -6,9 +7,10 @@ from sentence_transformers import SentenceTransformer
 
 COLLECTION_NAME = "financial_unstructured_docs"
 VECTOR_DIM = 384  # Dimension for all-MiniLM-L6-v2
+DEFAULT_STORAGE_PATH = Path(__file__).resolve().parent / "data" / "qdrant_db"
 
 class VectorStoreManager:
-    def __init__(self, storage_path: str = "data/qdrant_db"):
+    def __init__(self, storage_path: str | os.PathLike = DEFAULT_STORAGE_PATH):
         os.makedirs(storage_path, exist_ok=True)
         self.client = QdrantClient(path=storage_path)
         self.encoder = SentenceTransformer("all-MiniLM-L6-v2")
@@ -48,9 +50,21 @@ class VectorStoreManager:
         self.client.upsert(collection_name=COLLECTION_NAME, points=points)
         print(f"[Qdrant] Indexed {len(points)} vector records into '{COLLECTION_NAME}'.")
 
+    def close(self):
+        """Close the local Qdrant client cleanly."""
+        self.client.close()
+
 if __name__ == "__main__":
-    from src.llm_pipeline.ingest_docs import prepare_document_chunks
+    # Support both `python vector_store.py` from this directory and package
+    # execution such as `python -m src.llm_pipeline.vector_store`.
+    if __package__:
+        from .ingest_docs import prepare_document_chunks
+    else:
+        from ingest_docs import prepare_document_chunks
     
     chunks = prepare_document_chunks()
     vm = VectorStoreManager()
-    vm.index_chunks(chunks)
+    try:
+        vm.index_chunks(chunks)
+    finally:
+        vm.close()

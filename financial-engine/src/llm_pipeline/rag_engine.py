@@ -1,13 +1,18 @@
 from typing import List, Dict, Any, Optional
+from pathlib import Path
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sentence_transformers import SentenceTransformer
-from src.llm_pipeline.vector_store import COLLECTION_NAME
+from src.llm_pipeline.vector_store import COLLECTION_NAME, DEFAULT_STORAGE_PATH
 
 class FinancialRAGEngine:
-    def __init__(self, storage_path: str = "data/qdrant_db"):
+    def __init__(self, storage_path: str | Path = DEFAULT_STORAGE_PATH):
         self.client = QdrantClient(path=storage_path)
         self.encoder = SentenceTransformer("all-MiniLM-L6-v2")
+
+    def close(self):
+        """Close the local Qdrant client cleanly."""
+        self.client.close()
 
     def retrieve_context(
         self, 
@@ -29,15 +34,15 @@ class FinancialRAGEngine:
                 ]
             )
 
-        search_results = self.client.search(
+        query_response = self.client.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=query_filter,
             limit=top_k
         )
 
         retrieved_docs = []
-        for res in search_results:
+        for res in query_response.points:
             retrieved_docs.append({
                 "score": round(res.score, 4),
                 "ticker": res.payload.get("ticker"),

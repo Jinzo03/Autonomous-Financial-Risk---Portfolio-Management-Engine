@@ -10,3 +10,5 @@ financial-engine/src/data_pipeline/__pycache__/ingest.cpython-310.pyc
 financial-engine/src/data_pipeline/__pycache__/transform.cpython-310.pyc
 financial-engine/src/data_pipeline/__pycache__/validate.cpython-310.pyc
 financial-engine/src/ml_pipeline/ml_artifacts
+financial-engine/src/llm_pipeline/__pycache__
+financial-engine/src/llm_pipeline/data
