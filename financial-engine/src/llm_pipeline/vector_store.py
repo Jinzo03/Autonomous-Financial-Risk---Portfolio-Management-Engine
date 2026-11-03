@@ -115,6 +115,10 @@ class VectorStoreManager:
                         "chunk_id",
                         "chunk_index",
                         "start_index",
+                        "source_doc_id",
+                        "source_path",
+                        "page_number",
+                        "row_number",
                         "ticker",
                         "doc_id",
                         "section",
@@ -160,7 +164,26 @@ def _load_chunks() -> list[dict[str, Any]]:
 
 
 if __name__ == "__main__":
+    import argparse
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
-    chunks = _load_chunks()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "source_path",
+        nargs="?",
+        help="File or directory containing .txt, .md, .pdf, or .csv sources. "
+        "Omit to index synthetic demo documents.",
+    )
+    args = parser.parse_args()
+
+    if args.source_path:
+        if __package__:
+            from .ingest_docs import prepare_document_chunks
+        else:
+            from ingest_docs import prepare_document_chunks
+
+        chunks = prepare_document_chunks(source_path=args.source_path)
+    else:
+        chunks = _load_chunks()
     with VectorStoreManager() as vector_store:
         vector_store.index_chunks(chunks)
