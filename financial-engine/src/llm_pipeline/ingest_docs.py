@@ -268,7 +268,7 @@ def load_documents(source_path: str | Path) -> list[dict[str, Any]]:
 
 def prepare_document_chunks(
     chunk_size: int = 250,
-    chunk_overlap: int = 40,
+    chunk_overlap: int = 30,
     source_path: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     """Load optional source files and split each document with provenance."""

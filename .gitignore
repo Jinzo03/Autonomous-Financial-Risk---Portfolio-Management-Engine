@@ -1,4 +1,7 @@
 financial-engine/venv
+financial-engine/.env
+financial-engine/.env.*
+!financial-engine/.env.example
 financial-engine/__pycache__
 financial-engine/data
 financial-engine/mlartifacts/
