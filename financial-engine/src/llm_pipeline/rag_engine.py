@@ -249,8 +249,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
     with FinancialRAGEngine() as rag:
         result = rag.generate_answer(
-            query="What supply chain or component risks exist?",
-            ticker="AAPL",
+            query="Who is suing NEXA and what is the nature of the patent litigation?",
+            ticker="NEXA",
             top_k=2,
         )
         print(result["answer"])
