@@ -1,4 +1,5 @@
 import logging
+import os
 import requests
 from typing import Dict, Any, List
 from langchain_core.tools import tool
@@ -6,6 +7,9 @@ from src.llm_pipeline.rag_engine import FinancialRAGEngine
 
 logger = logging.getLogger(__name__)
 MLOPS_SERVICE_URL = "http://127.0.0.1:8000/predict_risk"
+WEB_SEARCH_MAX_RESULTS = max(1, min(10, int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))))
+WEB_SEARCH_REGION = os.getenv("WEB_SEARCH_REGION", "us-en")
+WEB_SEARCH_TIMELIMIT = os.getenv("WEB_SEARCH_TIMELIMIT", "w")
 
 
 # Tool 1: Quantitative MLOps Microservice Tool
@@ -51,27 +55,49 @@ def query_sec_rag_tool(ticker: str, query: str = "supply chain regulatory litiga
 # Tool 3: Market Sentiment & Web Events Tool
 @tool
 def search_market_sentiment_tool(ticker: str) -> Dict[str, Any]:
-    """Runs live market news and sentiment checks for recent macroeconomic or company-specific news events.
+    """Searches live web news for recent company-specific events.
     
     Args:
         ticker: Stock ticker symbol.
     """
-    # Simulates live market search API integration (e.g., Tavily, DuckDuckGo, or NewsAPI)
-    mock_news_database = {
-        "AAPL": {"headline": "Antitrust scrutiny intensifies over App Store revenue share.", "sentiment": "BEARISH", "sentiment_score": -0.45},
-        "NVDA": {"headline": "Next-gen AI chip demand surges despite international export limits.", "sentiment": "BULLISH", "sentiment_score": 0.65},
-        "NEXA": {"headline": "Patent infringement suit filed in Delaware District Court.", "sentiment": "VERY_BEARISH", "sentiment_score": -0.80}
-    }
-    
-    ticker_upper = ticker.upper()
-    news = mock_news_database.get(
-        ticker_upper, 
-        {"headline": "No major market events reported in the last 24 hours.", "sentiment": "NEUTRAL", "sentiment_score": 0.0}
-    )
-    
-    return {
-        "ticker": ticker_upper,
-        "recent_headline": news["headline"],
-        "sentiment_label": news["sentiment"],
-        "sentiment_score": news["sentiment_score"]
-    }
+    ticker_upper = ticker.strip().upper()
+    if not ticker_upper:
+        return {"error": "ticker must not be empty", "news": []}
+
+    try:
+        from ddgs import DDGS
+
+        results = DDGS(timeout=10).news(
+            f'"{ticker_upper}" stock company',
+            region=WEB_SEARCH_REGION,
+            safesearch="moderate",
+            timelimit=WEB_SEARCH_TIMELIMIT,
+            max_results=WEB_SEARCH_MAX_RESULTS,
+        )
+        news = [
+            {
+                "headline": item.get("title"),
+                "snippet": item.get("body"),
+                "url": item.get("url"),
+                "source": item.get("source"),
+                "published_at": item.get("date"),
+            }
+            for item in results
+        ]
+        return {
+            "ticker": ticker_upper,
+            "news": news,
+            "result_count": len(news),
+            "sentiment_label": "UNASSESSED",
+            "sentiment_score": None,
+        }
+    except Exception as exc:
+        logger.exception("Live news search failed for %s", ticker_upper)
+        return {
+            "ticker": ticker_upper,
+            "news": [],
+            "result_count": 0,
+            "sentiment_label": "UNAVAILABLE",
+            "sentiment_score": None,
+            "error": str(exc),
+        }
