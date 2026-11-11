@@ -34,7 +34,6 @@ def get_quantitative_risk_tool(ticker: str) -> Dict[str, Any]:
         logger.exception("Failed to connect to MLOps endpoint.")
         return {"error": str(e), "risk_category": "UNKNOWN", "risk_probability": 0.5}
 
-
 # Tool 2: Qualitative SEC Audit RAG Tool
 @tool
 def query_sec_rag_tool(ticker: str, query: str = "supply chain regulatory litigation risk") -> List[Dict[str, Any]]:
