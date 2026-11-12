@@ -1,20 +1,25 @@
 import logging
 import os
+from typing import Any
+
 import requests
-from typing import Dict, Any, List
-from langchain_core.tools import tool
-from src.llm_pipeline.rag_engine import FinancialRAGEngine
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
-MLOPS_SERVICE_URL = "http://127.0.0.1:8000/predict_risk"
-WEB_SEARCH_MAX_RESULTS = max(1, min(10, int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))))
+MLOPS_SERVICE_URL = os.getenv(
+    "MLOPS_SERVICE_URL", "http://127.0.0.1:8000/predict_risk"
+)
+WEB_SEARCH_MAX_RESULTS = max(
+    1, min(10, int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5")))
+)
 WEB_SEARCH_REGION = os.getenv("WEB_SEARCH_REGION", "us-en")
 WEB_SEARCH_TIMELIMIT = os.getenv("WEB_SEARCH_TIMELIMIT", "w")
 
 
 # Tool 1: Quantitative MLOps Microservice Tool
-@tool
-def get_quantitative_risk_tool(ticker: str) -> Dict[str, Any]:
+def get_quantitative_risk_tool(ticker: str) -> dict[str, Any]:
     """Queries the Phase 2 MLOps FastAPI microservice to retrieve real-time quantitative XGBoost risk scores and Feast features.
     
     Args:
@@ -35,8 +40,9 @@ def get_quantitative_risk_tool(ticker: str) -> Dict[str, Any]:
         return {"error": str(e), "risk_category": "UNKNOWN", "risk_probability": 0.5}
 
 # Tool 2: Qualitative SEC Audit RAG Tool
-@tool
-def query_sec_rag_tool(ticker: str, query: str = "supply chain regulatory litigation risk") -> List[Dict[str, Any]]:
+def query_sec_rag_tool(
+    ticker: str, query: str = "supply chain regulatory litigation risk"
+) -> list[dict[str, Any]]:
     """Queries the Phase 3 Qdrant vector index to extract qualitative risk disclosures and regulatory warnings from SEC filings.
     
     Args:
@@ -44,6 +50,8 @@ def query_sec_rag_tool(ticker: str, query: str = "supply chain regulatory litiga
         query: Specific semantic risk search terms.
     """
     try:
+        from src.llm_pipeline.rag_engine import FinancialRAGEngine
+
         with FinancialRAGEngine() as rag:
             return rag.retrieve_context(query=query, ticker=ticker, top_k=2)
     except Exception as e:
@@ -52,8 +60,7 @@ def query_sec_rag_tool(ticker: str, query: str = "supply chain regulatory litiga
 
 
 # Tool 3: Market Sentiment & Web Events Tool
-@tool
-def search_market_sentiment_tool(ticker: str) -> Dict[str, Any]:
+def search_market_sentiment_tool(ticker: str) -> dict[str, Any]:
     """Searches live web news for recent company-specific events.
     
     Args:

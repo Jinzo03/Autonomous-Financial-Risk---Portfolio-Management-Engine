@@ -1,23 +1,29 @@
-from typing import TypedDict, Annotated, List, Dict, Any, Optional, Literal
+from __future__ import annotations
+
 import operator
+from typing import Annotated, Any, Literal, TypedDict
 
 
-class FinancialAgentState(TypedDict):
+class AgentMessage(TypedDict):
+    role: str
+    content: str
+
+
+class MultiAgentState(TypedDict):
+    """Shared state passed between the risk workflow nodes."""
+
     ticker: str
-    thread_id: str
-    messages: Annotated[List[Dict[str, str]], operator.add]
-    
-    # Agent Outputs
-    quant_report: Optional[Dict[str, Any]]
-    qual_report: Optional[Dict[str, Any]]
-    
-    # Risk Assessment
-    risk_level: Optional[Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]]
-    risk_score: float
-    
-    # Governance & Checkpointing
+    messages: Annotated[list[AgentMessage], operator.add]
+    quant_report: dict[str, Any] | None
+    audit_report: dict[str, Any] | None
+    sentiment_report: dict[str, Any] | None
+    composite_risk_score: float | None
+    risk_level: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] | None
     human_approval_required: bool
-    human_approved: Optional[bool]
-    rejection_reason: Optional[str]
-    
-    final_verdict: Optional[Dict[str, Any]]
+    human_approved: bool | None
+    rejection_reason: str | None
+    final_verdict: dict[str, Any] | None
+
+
+# Backward-compatible name for code that imported the previous state type.
+FinancialAgentState = MultiAgentState
