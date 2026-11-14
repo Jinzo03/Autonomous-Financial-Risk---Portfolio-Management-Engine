@@ -1,0 +1,5 @@
+[server]
+# Disable import-path watching: Hugging Face's lazy Transformers exports can
+# trigger optional image dependencies (torchvision) during Streamlit's scan.
+# This is a text-only dashboard; restart Streamlit manually after code changes.
+fileWatcherType = "none"

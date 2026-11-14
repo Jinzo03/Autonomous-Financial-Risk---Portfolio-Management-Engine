@@ -31,4 +31,6 @@ From `financial-engine`, start the local dashboard with:
 
 The dashboard displays the quantitative model output, retrieved filing chunks,
 and recent news results. It reports whether the prediction API, Qdrant index,
-and MLflow UI are reachable. News sentiment is explicitly unscored.
+and MLflow UI are reachable. News sentiment is explicitly unscored. The local
+Streamlit file watcher is disabled to avoid noisy optional `torchvision`
+imports from Transformers; restart the dashboard manually after editing code.
