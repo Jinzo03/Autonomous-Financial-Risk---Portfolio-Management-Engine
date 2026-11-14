@@ -21,11 +21,17 @@ def quant_agent_node(state: MultiAgentState) -> dict[str, Any]:
     # Execute tool
     tool_output = get_quantitative_risk_tool(ticker)
     
+    risk_probability = tool_output.get("risk_probability")
+    score_text = (
+        f"{risk_probability:.4f}"
+        if isinstance(risk_probability, (int, float))
+        else "unavailable"
+    )
     return {
         "quant_report": tool_output,
         "messages": [{
             "role": "QuantAgent",
-            "content": f"Executed quantitative tool: Risk Score = {tool_output.get('risk_probability', 0.5):.4f}"
+            "content": f"Quantitative model status = {tool_output.get('status', 'unknown')}; risk score = {score_text}."
         }]
     }
 
@@ -78,9 +84,25 @@ def lead_orchestrator_node(state: MultiAgentState) -> dict[str, Any]:
     quant = state.get("quant_report") or {}
     sentiment = state.get("sentiment_report") or {}
     
-    quant_prob = quant.get("risk_probability", 0.5)
-    if not isinstance(quant_prob, (int, float)) or not isfinite(quant_prob):
-        quant_prob = 0.5
+    quant_prob = quant.get("risk_probability")
+    quant_available = (
+        not quant.get("error")
+        and isinstance(quant_prob, (int, float))
+        and isfinite(quant_prob)
+    )
+    if not quant_available:
+        return {
+            "composite_risk_score": None,
+            "risk_level": "UNKNOWN",
+            "human_approval_required": False,
+            "messages": [{
+                "role": "LeadOrchestrator",
+                "content": (
+                    "Risk assessment blocked: quantitative prediction service is "
+                    "unavailable; no execution clearance will be issued."
+                ),
+            }],
+        }
     quant_prob = min(1.0, max(0.0, float(quant_prob)))
 
     raw_sentiment_score = sentiment.get("sentiment_score")
@@ -164,8 +186,16 @@ def execution_node(state: MultiAgentState) -> dict[str, Any]:
         if state.get("human_approval_required")
         else True
     )
-    
-    if approved:
+
+    quant = state.get("quant_report") or {}
+    quant_available = (
+        not quant.get("error")
+        and isinstance(quant.get("risk_probability"), (int, float))
+        and isfinite(quant["risk_probability"])
+    )
+    if not quant_available:
+        status = "BLOCKED_MISSING_QUANTITATIVE_DATA"
+    elif approved:
         status = (
             "APPROVED_FOR_EXECUTION"
             if state.get("human_approval_required")

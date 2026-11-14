@@ -18,7 +18,7 @@ class MultiAgentState(TypedDict):
     audit_report: dict[str, Any] | None
     sentiment_report: dict[str, Any] | None
     composite_risk_score: float | None
-    risk_level: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] | None
+    risk_level: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL", "UNKNOWN"] | None
     human_approval_required: bool
     human_approved: bool | None
     rejection_reason: str | None

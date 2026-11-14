@@ -32,12 +32,24 @@ def get_quantitative_risk_tool(ticker: str) -> dict[str, Any]:
             timeout=5.0
         )
         if response.status_code == 200:
-            return response.json()
-        logger.error(f"MLOps service status {response.status_code}: {response.text}")
-        return {"error": f"HTTP {response.status_code}", "risk_category": "UNKNOWN", "risk_probability": 0.5}
+            result = response.json()
+            result["status"] = "available"
+            return result
+        logger.error("MLOps service status %s: %s", response.status_code, response.text)
+        return {
+            "status": "unavailable",
+            "error": f"MLOps service returned HTTP {response.status_code}",
+            "risk_category": "UNKNOWN",
+            "risk_probability": None,
+        }
     except Exception as e:
         logger.exception("Failed to connect to MLOps endpoint.")
-        return {"error": str(e), "risk_category": "UNKNOWN", "risk_probability": 0.5}
+        return {
+            "status": "unavailable",
+            "error": str(e),
+            "risk_category": "UNKNOWN",
+            "risk_probability": None,
+        }
 
 # Tool 2: Qualitative SEC Audit RAG Tool
 def query_sec_rag_tool(
