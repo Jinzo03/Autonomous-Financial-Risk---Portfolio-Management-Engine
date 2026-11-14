@@ -20,3 +20,15 @@ source citations. Set `GEMINI_MODEL`, `GEMINI_TEMPERATURE`, or
 `GEMINI_MAX_OUTPUT_TOKENS` in `.env` to change generation settings.
 The default model fallback order is Gemini 3.8 Flash, 3.6 Flash, then 2.5 Flash;
 set `GEMINI_FALLBACK_MODELS` to customize the fallback sequence.
+
+## Stage 1 risk dashboard
+
+From `financial-engine`, start the local dashboard with:
+
+```powershell
+.\venv\Scripts\python.exe -m streamlit run src/ui/dashboard.py
+```
+
+The dashboard displays the quantitative model output, retrieved filing chunks,
+and recent news results. It reports whether the prediction API, Qdrant index,
+and MLflow UI are reachable. News sentiment is explicitly unscored.

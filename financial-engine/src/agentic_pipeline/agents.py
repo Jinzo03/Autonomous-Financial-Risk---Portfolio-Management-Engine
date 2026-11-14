@@ -42,12 +42,31 @@ def audit_agent_node(state: MultiAgentState) -> dict[str, Any]:
     logger.info(f"[AuditAgent] Invoking query_sec_rag_tool for {ticker}...")
     
     # Execute tool
-    docs = query_sec_rag_tool(
-        ticker, query="supply chain litigation regulatory exposure"
-    )
+    try:
+        docs = query_sec_rag_tool(
+            ticker, query="supply chain litigation regulatory exposure"
+        )
+    except Exception as exc:
+        logger.exception("Filing retrieval failed for %s", ticker)
+        return {
+            "audit_report": {
+                "available": False,
+                "documents": [],
+                "count": 0,
+                "error": str(exc),
+            },
+            "messages": [{
+                "role": "AuditAgent",
+                "content": f"Filing retrieval unavailable for {ticker}.",
+            }],
+        }
     
     return {
-        "audit_report": {"documents": docs, "count": len(docs)},
+        "audit_report": {
+            "available": True,
+            "documents": docs,
+            "count": len(docs),
+        },
         "messages": [{
             "role": "AuditAgent",
             "content": f"Executed SEC RAG tool: Retrieved {len(docs)} qualitative risk chunks."

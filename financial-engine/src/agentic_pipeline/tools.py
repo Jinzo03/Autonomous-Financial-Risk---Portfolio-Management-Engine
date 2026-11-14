@@ -61,14 +61,10 @@ def query_sec_rag_tool(
         ticker: Stock ticker symbol.
         query: Specific semantic risk search terms.
     """
-    try:
-        from src.llm_pipeline.rag_engine import FinancialRAGEngine
+    from src.llm_pipeline.rag_engine import FinancialRAGEngine
 
-        with FinancialRAGEngine() as rag:
-            return rag.retrieve_context(query=query, ticker=ticker, top_k=2)
-    except Exception as e:
-        logger.exception("Failed to query Qdrant RAG index.")
-        return []
+    with FinancialRAGEngine() as rag:
+        return rag.retrieve_context(query=query, ticker=ticker, top_k=2)
 
 
 # Tool 3: Market Sentiment & Web Events Tool
