@@ -1,4 +1,4 @@
-"""Stage 1 local dashboard for quantitative risk and supporting evidence."""
+"""Local dashboard for risk assessment, evidence review, and human decisions."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 import requests
 import streamlit as st
 from dotenv import load_dotenv
+from langgraph.types import Command
 
 from src.agentic_pipeline.graph import create_multi_agent_graph
 from src.llm_pipeline.config import COLLECTION_NAME, create_qdrant_client
@@ -116,7 +117,7 @@ with st.sidebar:
 
 st.title("Financial Risk Assessment")
 st.caption(
-    "Stage 1 · Quantitative model output with filing and live-news evidence. "
+    "Quantitative model output with filing and live-news evidence, followed by human review when required. "
     "This page reports decisions; it does not place trades."
 )
 
@@ -137,6 +138,7 @@ with st.form("assessment_form", clear_on_submit=False):
 if submitted:
     st.session_state.pop("active_snapshot", None)
     st.session_state.pop("active_next", None)
+    st.session_state.pop("active_thread_id", None)
     if not TICKER_PATTERN.fullmatch(ticker_input):
         st.error("Enter a ticker using letters, numbers, dots, or hyphens (up to 12 characters).")
     else:
@@ -186,8 +188,8 @@ if state:
         )
     elif "human_governance" in next_nodes:
         st.warning(
-            f"{risk_level} risk requires human review. This Stage 1 dashboard does not "
-            "provide approval controls; no execution has occurred."
+            f"{risk_level} risk requires human review. The workflow is paused; "
+            "no execution has occurred."
         )
 
     quant_score = quant_report.get("risk_probability")
@@ -270,6 +272,65 @@ if state:
                         st.write(article["snippet"])
                     if isinstance(url, str) and urlsplit(url).scheme in {"http", "https"}:
                         st.link_button("Open source", url)
+
+    if "human_governance" in next_nodes:
+        st.divider()
+        st.subheader("Human review")
+        st.write(
+            f"Review the evidence above for **{state.get('ticker', 'this ticker')}**. "
+            f"The current assessment is **{risk_level}** with score "
+            f"**{state.get('composite_risk_score'):.4f}**."
+            if _is_number(state.get("composite_risk_score"))
+            else f"Review the evidence above for **{state.get('ticker', 'this ticker')}**."
+        )
+        with st.form("human_review_form", clear_on_submit=False):
+            review_reason = st.text_area(
+                "Review note (required when rejecting)",
+                placeholder="Summarize why this assessment is approved or rejected.",
+            ).strip()
+            approve_col, reject_col = st.columns(2)
+            with approve_col:
+                approve_clicked = st.form_submit_button(
+                    "Approve for execution",
+                    type="primary",
+                    use_container_width=True,
+                )
+            with reject_col:
+                reject_clicked = st.form_submit_button(
+                    "Reject assessment",
+                    use_container_width=True,
+                )
+
+        if approve_clicked or reject_clicked:
+            approved = approve_clicked
+            if reject_clicked and not review_reason:
+                st.error("Add a brief reason before rejecting this assessment.")
+            else:
+                thread_id = st.session_state.get("active_thread_id")
+                if not thread_id:
+                    st.error("This review session has expired. Run the assessment again.")
+                else:
+                    config = {"configurable": {"thread_id": thread_id}}
+                    decision = {
+                        "approved": approved,
+                        "reason": review_reason or None,
+                    }
+                    try:
+                        with st.spinner("Recording review decision…"):
+                            graph = get_compiled_graph()
+                            graph.invoke(Command(resume=decision), config=config)
+                            snapshot = graph.get_state(config)
+                        st.session_state["active_snapshot"] = snapshot.values
+                        st.session_state["active_next"] = snapshot.next
+                        st.success(
+                            "Assessment approved for execution. No trade was placed."
+                            if approved
+                            else "Assessment rejected. No trade was placed."
+                        )
+                        st.rerun()
+                    except Exception as exc:
+                        logger.exception("Failed to resume human review for %s", thread_id)
+                        st.error(f"Could not record the review decision: {exc}")
 
     if verdict.get("final_status"):
         st.caption(f"Workflow status: `{verdict['final_status']}`")

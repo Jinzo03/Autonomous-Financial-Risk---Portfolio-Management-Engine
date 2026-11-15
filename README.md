@@ -21,7 +21,7 @@ source citations. Set `GEMINI_MODEL`, `GEMINI_TEMPERATURE`, or
 The default model fallback order is Gemini 3.8 Flash, 3.6 Flash, then 2.5 Flash;
 set `GEMINI_FALLBACK_MODELS` to customize the fallback sequence.
 
-## Stage 1 risk dashboard
+## Risk assessment dashboard
 
 From `financial-engine`, start the local dashboard with:
 
@@ -34,3 +34,6 @@ and recent news results. It reports whether the prediction API, Qdrant index,
 and MLflow UI are reachable. News sentiment is explicitly unscored. The local
 Streamlit file watcher is disabled to avoid noisy optional `torchvision`
 imports from Transformers; restart the dashboard manually after editing code.
+When the risk level requires review, the dashboard pauses and offers explicit
+approve/reject controls. Rejecting requires a note. Approval records clearance
+for execution only; the workflow does not place trades.
