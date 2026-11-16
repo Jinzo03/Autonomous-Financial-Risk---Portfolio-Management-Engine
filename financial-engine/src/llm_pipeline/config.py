@@ -31,12 +31,12 @@ if not DEFAULT_STORAGE_PATH.is_absolute():
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-4-hydrogen")
 GEMINI_FALLBACK_MODELS = tuple(
     model.strip()
     for model in os.getenv(
         "GEMINI_FALLBACK_MODELS",
-        "gemini-3.6-flash,gemini-2.5-flash",
+        "gemini-3.8-flash,gemini-3.6-flash,gemini-2.5-flash",
     ).split(",")
     if model.strip()
 )

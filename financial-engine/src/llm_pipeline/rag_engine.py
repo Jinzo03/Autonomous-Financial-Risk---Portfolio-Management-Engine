@@ -203,8 +203,8 @@ class FinancialRAGEngine:
                 "system_instruction": system_instruction,
                 "max_output_tokens": GEMINI_MAX_OUTPUT_TOKENS,
             }
-            # Gemini 3.8 no longer accepts legacy sampling controls.
-            if not model_name.startswith("gemini-3.8"):
+            # Gemini 3.x and 4.x models do not use the legacy temperature control.
+            if not model_name.startswith(("gemini-3.", "gemini-4-")):
                 config["temperature"] = GEMINI_TEMPERATURE
 
             try:
