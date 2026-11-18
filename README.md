@@ -37,3 +37,11 @@ imports from Transformers; restart the dashboard manually after editing code.
 When the risk level requires review, the dashboard pauses and offers explicit
 approve/reject controls. Rejecting requires a note. Approval records clearance
 for execution only; the workflow does not place trades.
+
+Use the dashboard's **Monitoring** view to review recent assessments, risk-score
+trends, pending reviews, and reviewer decisions. Local history is stored in
+`financial-engine/data/dashboard_monitoring.sqlite3` and survives dashboard
+restarts. It contains assessment summaries and review notes; an in-progress
+human-review checkpoint itself is still held in memory and cannot be resumed
+after a dashboard process restart. The monitoring view does not measure model
+accuracy or drift because verified outcome labels are not yet collected.

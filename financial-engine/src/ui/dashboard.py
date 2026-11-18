@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+import pandas as pd
 import requests
 import streamlit as st
 from dotenv import load_dotenv
@@ -16,6 +17,7 @@ from langgraph.types import Command
 
 from src.agentic_pipeline.graph import create_multi_agent_graph
 from src.llm_pipeline.config import COLLECTION_NAME, create_qdrant_client
+from src.ui.monitoring_store import get_assessment_history, save_assessment
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -114,6 +116,74 @@ with st.sidebar:
         check_services.clear()
         st.rerun()
 
+    page = st.radio("Dashboard", ["Assessment", "Monitoring"], key="dashboard_page")
+
+
+if page == "Monitoring":
+    st.title("Financial Risk Monitoring")
+    st.caption(
+        "Assessment and human-review history. These trends are not model accuracy or "
+        "drift measurements because no ground-truth outcomes are recorded."
+    )
+    if st.button("Refresh monitoring data", use_container_width=False):
+        st.rerun()
+
+    try:
+        history = get_assessment_history()
+    except Exception:
+        logger.exception("Could not load dashboard monitoring history")
+        history = []
+        st.error("Monitoring history could not be loaded. Check local storage permissions.")
+
+    if not history:
+        st.info("No assessments have been recorded yet. Run an assessment to start the history.")
+    else:
+        records = pd.DataFrame(history)
+        records["created_at"] = pd.to_datetime(records["created_at"], utc=True, errors="coerce")
+        latest_time = records["created_at"].max()
+        pending_count = int((records["review_decision"] == "PENDING").sum())
+        approved_count = int((records["review_decision"] == "APPROVED").sum())
+        rejected_count = int((records["review_decision"] == "REJECTED").sum())
+        valid_scores = records["composite_risk_score"].dropna()
+
+        total_col, pending_col, approved_col, rejected_col, mean_col = st.columns(5)
+        total_col.metric("Assessments", len(records))
+        pending_col.metric("Pending review", pending_count)
+        approved_col.metric("Approved", approved_count)
+        rejected_col.metric("Rejected", rejected_count)
+        mean_col.metric(
+            "Mean composite score",
+            f"{valid_scores.mean():.3f}" if not valid_scores.empty else "Unavailable",
+        )
+        if pd.notna(latest_time):
+            st.caption(f"Most recent assessment: {latest_time.strftime('%Y-%m-%d %H:%M UTC')}")
+
+        scored = records.dropna(subset=["composite_risk_score"]).sort_values("created_at")
+        if not scored.empty:
+            st.markdown("#### Composite risk score over time")
+            chart_data = scored.set_index("created_at")[["composite_risk_score"]]
+            st.line_chart(chart_data, y="composite_risk_score")
+
+        st.markdown("#### Assessment and review history")
+        ticker_options = ["All tickers", *sorted(records["ticker"].dropna().unique())]
+        selected_ticker = st.selectbox("Filter by ticker", ticker_options)
+        visible_records = records
+        if selected_ticker != "All tickers":
+            visible_records = visible_records[visible_records["ticker"] == selected_ticker]
+        display_columns = {
+            "created_at": "Created (UTC)",
+            "ticker": "Ticker",
+            "risk_probability": "Model probability",
+            "composite_risk_score": "Composite score",
+            "risk_level": "Risk level",
+            "final_status": "Workflow status",
+            "review_decision": "Review decision",
+            "review_reason": "Review note",
+        }
+        table = visible_records[list(display_columns)].rename(columns=display_columns).copy()
+        table["Created (UTC)"] = table["Created (UTC)"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        st.dataframe(table, use_container_width=True, hide_index=True)
+    st.stop()
 
 st.title("Financial Risk Assessment")
 st.caption(
@@ -166,6 +236,11 @@ if submitted:
             st.session_state["active_snapshot"] = snapshot.values
             st.session_state["active_next"] = snapshot.next
             st.session_state["active_thread_id"] = thread_id
+            try:
+                save_assessment(thread_id, snapshot.values, snapshot.next)
+            except Exception:
+                logger.exception("Could not save monitoring record for %s", thread_id)
+                st.warning("Assessment completed, but its monitoring record was not saved.")
         except Exception as exc:
             logger.exception("Dashboard assessment failed for %s", ticker_input)
             st.error(f"Assessment failed: {exc}")
@@ -322,6 +397,11 @@ if state:
                             snapshot = graph.get_state(config)
                         st.session_state["active_snapshot"] = snapshot.values
                         st.session_state["active_next"] = snapshot.next
+                        try:
+                            save_assessment(thread_id, snapshot.values, snapshot.next)
+                        except Exception:
+                            logger.exception("Could not update review history for %s", thread_id)
+                            st.warning("The decision was recorded, but monitoring history was not updated.")
                         st.success(
                             "Assessment approved for execution. No trade was placed."
                             if approved

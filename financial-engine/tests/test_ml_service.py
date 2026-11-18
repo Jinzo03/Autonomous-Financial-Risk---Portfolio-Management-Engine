@@ -20,7 +20,6 @@ class FakeOnlineFeatureResponse:
     def to_dict(self):
         return self.values
 
-
 class FakeFeatureStore:
     def __init__(self):
         self.values = {
