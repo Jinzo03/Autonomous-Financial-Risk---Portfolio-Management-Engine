@@ -33,11 +33,18 @@ MLOPS_READY_URL = urlunsplit(
     (_mlops_url.scheme, _mlops_url.netloc, f"{_mlops_parent}/ready", "", "")
 )
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
-MLFLOW_UI_URL = (
+MLFLOW_HEALTH_URL = (
     MLFLOW_TRACKING_URI.rstrip("/")
     if MLFLOW_TRACKING_URI.startswith(("http://", "https://"))
     else None
 )
+MLFLOW_UI_URL = os.getenv("MLFLOW_UI_URL")
+if MLFLOW_UI_URL is None:
+    MLFLOW_UI_URL = (
+        MLFLOW_TRACKING_URI.rstrip("/")
+        if MLFLOW_TRACKING_URI.startswith(("http://", "https://"))
+        else None
+    )
 TICKER_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9.-]{0,11}$")
 
 st.set_page_config(
@@ -75,9 +82,9 @@ def check_services() -> dict[str, bool]:
             except Exception:
                 logger.exception("Failed to close Qdrant health-check client")
 
-    if MLFLOW_UI_URL:
+    if MLFLOW_HEALTH_URL:
         try:
-            response = requests.get(MLFLOW_UI_URL, timeout=2, allow_redirects=False)
+            response = requests.get(MLFLOW_HEALTH_URL, timeout=2, allow_redirects=False)
             mlflow_ok = response.status_code in (200, 301, 302, 307, 308)
         except requests.RequestException:
             mlflow_ok = False

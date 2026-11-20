@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+data/
+mlflow.db
+mlartifacts/
+src/data_pipeline/feast_repo/data/
+src/llm_pipeline/data/qdrant_db/
+.pytest_cache/

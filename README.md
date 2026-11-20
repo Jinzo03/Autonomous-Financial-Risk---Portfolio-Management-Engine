@@ -45,3 +45,30 @@ restarts. It contains assessment summaries and review notes; an in-progress
 human-review checkpoint itself is still held in memory and cannot be resumed
 after a dashboard process restart. The monitoring view does not measure model
 accuracy or drift because verified outcome labels are not yet collected.
+
+## Run the full stack with Docker
+
+From `financial-engine`, start the dashboard, prediction API, MLflow, and Qdrant
+with one command:
+
+```powershell
+docker compose up --build
+```
+
+Open the dashboard at <http://localhost:8501>. MLflow is at
+<http://localhost:5000>, the prediction API docs are at
+<http://localhost:8000/docs>, and Qdrant is at <http://localhost:6333/dashboard>.
+The startup process indexes the PDFs in `financial-engine/data/filings` into
+Qdrant. Stop the stack with Ctrl+C; `docker compose down` also stops it while
+preserving Qdrant and downloaded embedding-model data.
+
+Docker Desktop must be running. The compose setup reuses the local
+`mlflow.db`, `mlartifacts`, Feast online-store files, and feature parquet data.
+If the champion model artifacts are missing, train and promote a model once
+from `financial-engine` with:
+
+```powershell
+docker compose --profile training run --build --rm train-model
+```
+
+Then start the regular stack with `docker compose up --build`.

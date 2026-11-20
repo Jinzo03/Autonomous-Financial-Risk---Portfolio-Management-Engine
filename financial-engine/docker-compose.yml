@@ -1,1 +1,171 @@
-services
+name: financial-risk-engine
+
+x-app-image: &app-image
+  image: financial-risk-engine:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+services:
+  mlflow:
+    <<: *app-image
+    command:
+      - mlflow
+      - server
+      - --backend-store-uri
+      - sqlite:////mlflow/mlflow.db
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --serve-artifacts
+      - --artifacts-destination
+      - /mlflow/artifacts
+      - --allowed-hosts
+      - mlflow:5000,localhost:5000,127.0.0.1:5000
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlflow.db:/mlflow/mlflow.db
+      - ./mlartifacts:/mlflow/artifacts
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
+  index-filings:
+    <<: *app-image
+    command:
+      - sh
+      - -c
+      - >-
+        until python -c "import requests; requests.get('http://qdrant:6333/readyz', timeout=2).raise_for_status()" >/dev/null 2>&1;
+        do sleep 2; done;
+        python -m src.llm_pipeline.vector_store /app/data/filings
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      HF_HOME: /cache/huggingface
+    volumes:
+      - ./data:/app/data
+      - huggingface-cache:/cache/huggingface
+    depends_on:
+      qdrant:
+        condition: service_started
+    restart: "no"
+
+  mlops-api:
+    <<: *app-image
+    command:
+      - uvicorn
+      - src.ml_pipeline.serve:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      FEAST_REPO_PATH: /app/src/data_pipeline/feast_repo
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src/data_pipeline/feast_repo/data:/app/src/data_pipeline/feast_repo/data
+      - ./data:/app/data:ro
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    restart: unless-stopped
+
+  train-model:
+    <<: *app-image
+    profiles:
+      - training
+    command:
+      - sh
+      - -c
+      - python -m src.ml_pipeline.train && python -m src.ml_pipeline.set_alias
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    restart: "no"
+
+  dashboard:
+    <<: *app-image
+    command:
+      - streamlit
+      - run
+      - src/ui/dashboard.py
+      - --server.address
+      - 0.0.0.0
+      - --server.port
+      - "8501"
+      - --server.fileWatcherType
+      - none
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MLOPS_SERVICE_URL: http://mlops-api:8000/predict_risk
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_UI_URL: http://localhost:5000
+      QDRANT_URL: http://qdrant:6333
+      HF_HOME: /cache/huggingface
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - huggingface-cache:/cache/huggingface
+    depends_on:
+      mlops-api:
+        condition: service_healthy
+      index-filings:
+        condition: service_completed_successfully
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  qdrant-data:
+  huggingface-cache:
