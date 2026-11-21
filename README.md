@@ -72,3 +72,5 @@ docker compose --profile training run --build --rm train-model
 ```
 
 Then start the regular stack with `docker compose up --build`.
+
+Project still in progress
