@@ -55,6 +55,11 @@ with one command:
 docker compose up --build
 ```
 
+Container builds use `financial-engine/requirements-container.txt` instead of
+installing the full local development set. Spark/Delta extras are omitted from
+the service image, and embeddings use the CPU-only PyTorch wheel; Docker caches
+pip downloads for later rebuilds.
+
 Open the dashboard at <http://localhost:8501>. MLflow is at
 <http://localhost:5000>, the prediction API docs are at
 <http://localhost:8000/docs>, and Qdrant is at <http://localhost:6333/dashboard>.
