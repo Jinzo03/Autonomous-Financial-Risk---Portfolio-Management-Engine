@@ -11,7 +11,7 @@ from langchain_text_splitters import (
 )
 
 logger = logging.getLogger(__name__)
-SUPPORTED_SUFFIXES = {".txt", ".md", ".markdown", ".pdf", ".csv"}
+SUPPORTED_SUFFIXES = {".txt", ".md", ".markdown", ".pdf", ".csv", ".htm", ".html"}
 TEXT_COLUMNS = (
     "text",
     "content",
@@ -162,6 +162,27 @@ def _read_pdf_documents(path: Path, relative_path: str) -> list[dict[str, Any]]:
     return documents
 
 
+def _read_html_documents(path: Path, relative_path: str) -> list[dict[str, Any]]:
+    from bs4 import BeautifulSoup
+
+    html = path.read_text(encoding="utf-8", errors="replace")
+    soup = BeautifulSoup(html, "html.parser")
+    for element in soup(("script", "style", "ix:header", "header", "footer")):
+        element.decompose()
+    content = soup.get_text("\n", strip=True)
+    if not content:
+        return []
+    title = soup.title.get_text(" ", strip=True) if soup.title else path.stem
+    return [{
+        "ticker": _filename_ticker(path),
+        "doc_id": relative_path,
+        "source_doc_id": relative_path,
+        "source_path": relative_path,
+        "section": title,
+        "content": content,
+    }]
+
+
 def _read_csv_documents(path: Path, relative_path: str) -> list[dict[str, Any]]:
     documents = []
     with path.open("r", encoding="utf-8-sig", newline="") as csv_file:
@@ -256,6 +277,8 @@ def load_documents(source_path: str | Path) -> list[dict[str, Any]]:
             loaded = _read_text_documents(path, relative_path)
         elif suffix == ".pdf":
             loaded = _read_pdf_documents(path, relative_path)
+        elif suffix in {".htm", ".html"}:
+            loaded = _read_html_documents(path, relative_path)
         else:  # .csv
             loaded = _read_csv_documents(path, relative_path)
         documents.extend(loaded)
@@ -266,22 +289,17 @@ def load_documents(source_path: str | Path) -> list[dict[str, Any]]:
     return documents
 
 
-def prepare_document_chunks(
+def chunk_documents(
+    docs: list[dict[str, Any]],
     chunk_size: int = 250,
     chunk_overlap: int = 30,
-    source_path: str | Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Load optional source files and split each document with provenance."""
+    """Split loaded document records into chunks while retaining provenance."""
     if chunk_size < 1:
         raise ValueError("chunk_size must be a positive integer")
     if not 0 <= chunk_overlap < chunk_size:
         raise ValueError("chunk_overlap must be between 0 and chunk_size - 1")
 
-    docs = (
-        load_documents(source_path)
-        if source_path is not None
-        else generate_mock_sec_filings()
-    )
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
@@ -299,6 +317,9 @@ def prepare_document_chunks(
         for metadata_key in (
             "source_doc_id",
             "source_path",
+            "source_url",
+            "filing_date",
+            "form",
             "page_number",
             "row_number",
         ):
@@ -323,6 +344,20 @@ def prepare_document_chunks(
         len(docs),
     )
     return chunked_records
+
+
+def prepare_document_chunks(
+    chunk_size: int = 250,
+    chunk_overlap: int = 30,
+    source_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Load optional source files and split each document with provenance."""
+    docs = (
+        load_documents(source_path)
+        if source_path is not None
+        else generate_mock_sec_filings()
+    )
+    return chunk_documents(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")

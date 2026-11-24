@@ -33,11 +33,17 @@ class VectorStoreManager:
         self,
         storage_path: str | os.PathLike = DEFAULT_STORAGE_PATH,
         embedding_model: str = EMBEDDING_MODEL_NAME,
+        encoder: SentenceTransformer | None = None,
     ) -> None:
         self.embedding_model = embedding_model
+        self._provided_encoder = encoder
         self.client = create_qdrant_client(storage_path)
         try:
-            self.encoder = SentenceTransformer(self.embedding_model)
+            self.encoder = (
+                self._provided_encoder
+                if self._provided_encoder is not None
+                else SentenceTransformer(self.embedding_model)
+            )
             self.vector_size = self.encoder.get_embedding_dimension()
             if self.vector_size is None:
                 raise ValueError(
@@ -117,6 +123,7 @@ class VectorStoreManager:
                         "start_index",
                         "source_doc_id",
                         "source_path",
+                        "source_url",
                         "page_number",
                         "row_number",
                         "ticker",

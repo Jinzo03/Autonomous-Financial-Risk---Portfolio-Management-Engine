@@ -17,6 +17,7 @@ from langgraph.types import Command
 
 from src.agentic_pipeline.graph import create_multi_agent_graph
 from src.llm_pipeline.config import COLLECTION_NAME, create_qdrant_client
+from src.llm_pipeline.sec_filings import SECFilingError, sync_sec_filings
 from src.ui.monitoring_store import get_assessment_history, save_assessment
 
 
@@ -135,6 +136,26 @@ def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _render_filing_sources(sources: list[dict]) -> None:
+    for source in sources:
+        source_name = (
+            source.get("source_path") or source.get("doc_id") or "Indexed filing"
+        )
+        location = source.get("page_number") or source.get("section")
+        st.write(
+            f"**{source.get('citation', '')} {source_name}**"
+            + (f" · {location}" if location else "")
+        )
+        source_url = source.get("source_url")
+        if isinstance(source_url, str) and urlsplit(source_url).scheme in {"http", "https"}:
+            st.markdown(f"[Open filing at SEC]({source_url})")
+        if _is_number(source.get("score")):
+            st.caption(
+                f"Retrieval similarity: {source['score']:.3f} "
+                "(relevance signal, not confidence)."
+            )
+
+
 with st.sidebar:
     st.header("Service status")
     health = check_services()
@@ -237,8 +258,9 @@ if page == "Monitoring":
 if page == "Ask about a stock":
     st.title("Ask about a stock")
     st.caption(
-        "Ask questions about indexed company filings. Answers are grounded in those "
-        "filings and include citations; this chat does not provide live prices or news."
+        "Ask about a company’s SEC filings. If the ticker has no indexed filings, the "
+        "dashboard fetches its latest annual and quarterly reports and indexes them "
+        "automatically. Answers cite filings; live prices and news are not included."
     )
 
     active_snapshot = st.session_state.get("active_snapshot") or {}
@@ -249,13 +271,12 @@ if page == "Ask about a stock":
         st.error("Could not read the filing index. Check Qdrant service status.")
         st.stop()
 
-    if not indexed_tickers:
-        st.error("No filing chunks are indexed yet. Add filings and run the indexer first.")
-        st.code("docker compose run --rm index-filings", language="powershell")
-        st.stop()
-
     active_ticker = str(active_snapshot.get("ticker", "")).strip().upper()
-    if active_ticker and active_ticker not in indexed_tickers:
+    if indexed_tickers:
+        st.caption(f"Already indexed: {', '.join(indexed_tickers)}")
+    else:
+        st.info("No filings are indexed yet. Asking about a ticker will import its SEC filings.")
+    if active_ticker and active_ticker not in indexed_tickers and indexed_tickers:
         st.info(
             f"The current assessment is for {active_ticker}, but the filing index has "
             f"no documents for it. Indexed tickers: {', '.join(indexed_tickers)}."
@@ -263,22 +284,42 @@ if page == "Ask about a stock":
 
     ticker_col, refresh_col, clear_col = st.columns([3, 1, 1])
     with ticker_col:
-        default_index = indexed_tickers.index(active_ticker) if active_ticker in indexed_tickers else 0
-        qa_ticker_input = st.selectbox(
-            "Ticker with indexed filings",
-            indexed_tickers,
-            index=default_index,
-        )
+        qa_ticker_input = st.text_input(
+            "Ticker symbol",
+            value=active_ticker or "AAPL",
+            max_chars=12,
+            key="qa_ticker_input",
+        ).strip().upper()
     with refresh_col:
         st.write("")
-        refresh_index = st.button("Refresh tickers", use_container_width=True)
+        refresh_sec = st.button("Refresh SEC filings", use_container_width=True)
     with clear_col:
         st.write("")
         clear_chat = st.button("Clear chat", use_container_width=True)
 
-    if refresh_index:
-        get_indexed_tickers.clear()
-        st.rerun()
+    if not TICKER_PATTERN.fullmatch(qa_ticker_input):
+        st.error("Enter a valid ticker using letters, numbers, dots, or hyphens.")
+        st.stop()
+
+    if refresh_sec:
+        try:
+            with st.spinner(f"Checking the latest SEC filings for {qa_ticker_input}…"):
+                rag_engine = get_rag_engine()
+                sync_result = sync_sec_filings(
+                    qa_ticker_input,
+                    already_indexed=qa_ticker_input in indexed_tickers,
+                    encoder=rag_engine.encoder,
+                    force_refresh=True,
+                )
+            get_indexed_tickers.clear()
+            indexed_tickers = get_indexed_tickers()
+            st.success(
+                f"{sync_result['company_name']}: indexed "
+                f"{sync_result['indexed_chunks']} new filing chunks."
+            )
+        except Exception as exc:
+            logger.exception("Could not refresh SEC filings for %s", qa_ticker_input)
+            st.error(str(exc))
 
     if st.session_state.get("qa_active_ticker") != qa_ticker_input:
         st.session_state["qa_active_ticker"] = qa_ticker_input
@@ -313,22 +354,7 @@ if page == "Ask about a stock":
                 sources = message.get("sources") or []
                 if sources:
                     with st.expander("Filing sources"):
-                        for source in sources:
-                            source_name = (
-                                source.get("source_path")
-                                or source.get("doc_id")
-                                or "Indexed filing"
-                            )
-                            location = source.get("page_number") or source.get("section")
-                            st.write(
-                                f"**{source.get('citation', '')} {source_name}**"
-                                + (f" · {location}" if location else "")
-                            )
-                            if _is_number(source.get("score")):
-                                st.caption(
-                                    f"Retrieval similarity: {source['score']:.3f} "
-                                    "(relevance signal, not confidence)."
-                                )
+                        _render_filing_sources(sources)
 
     question = st.chat_input("Ask a question about this company’s filings")
     if question:
@@ -345,8 +371,25 @@ if page == "Ask about a stock":
             with st.chat_message("user"):
                 st.markdown(question)
             try:
+                rag_engine = get_rag_engine()
+                if qa_ticker_input not in indexed_tickers:
+                    with st.spinner(
+                        f"Finding {qa_ticker_input} on SEC EDGAR and indexing its filings…"
+                    ):
+                        sync_result = sync_sec_filings(
+                            qa_ticker_input,
+                            already_indexed=False,
+                            encoder=rag_engine.encoder,
+                        )
+                    get_indexed_tickers.clear()
+                    indexed_tickers = get_indexed_tickers()
+                    st.info(
+                        f"Imported {sync_result['company_name']} filings and indexed "
+                        f"{sync_result['indexed_chunks']} chunks."
+                    )
+
                 with st.spinner("Searching filings and drafting a cited answer…"):
-                    answer_result = get_rag_engine().generate_answer(
+                    answer_result = rag_engine.generate_answer(
                         query=question,
                         ticker=qa_ticker_input,
                         top_k=4,
@@ -358,11 +401,13 @@ if page == "Ask about a stock":
                     "sources": answer_result.get("sources", []),
                     "model": answer_result.get("model"),
                 }
-            except Exception:
+            except Exception as exc:
                 logger.exception("Stock Q&A failed for %s", qa_ticker_input)
                 answer_message = {
                     "role": "assistant",
-                    "content": (
+                    "content": str(exc)
+                    if isinstance(exc, SECFilingError)
+                    else (
                         "I couldn’t answer that right now. Check that the filing index "
                         "is available and GEMINI_API_KEY is configured."
                     ),
@@ -375,22 +420,7 @@ if page == "Ask about a stock":
                     st.caption(f"Generated with {answer_message['model']}")
                 if answer_message["sources"]:
                     with st.expander("Filing sources"):
-                        for source in answer_message["sources"]:
-                            source_name = (
-                                source.get("source_path")
-                                or source.get("doc_id")
-                                or "Indexed filing"
-                            )
-                            location = source.get("page_number") or source.get("section")
-                            st.write(
-                                f"**{source.get('citation', '')} {source_name}**"
-                                + (f" · {location}" if location else "")
-                            )
-                            if _is_number(source.get("score")):
-                                st.caption(
-                                    f"Retrieval similarity: {source['score']:.3f} "
-                                    "(relevance signal, not confidence)."
-                                )
+                        _render_filing_sources(answer_message["sources"])
     st.stop()
 
 st.title("Financial Risk Assessment")

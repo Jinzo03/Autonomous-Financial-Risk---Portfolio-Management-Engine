@@ -44,6 +44,12 @@ and can use recent chat turns to resolve follow-up questions. This view does not
 provide live stock prices or current news, and assessment metrics are displayed
 separately from filing evidence.
 
+For a ticker that is not indexed, the dashboard can fetch its latest annual and
+interim SEC filings, cache them in `financial-engine/data/sec_filings`, and add
+their chunks to Qdrant automatically. Set `SEC_USER_AGENT` in `.env` once to an
+application name and a real contact email, as requested by the SEC for automated
+access. SEC filings are public and this lookup does not require an API key.
+
 Use the dashboard's **Monitoring** view to review recent assessments, risk-score
 trends, pending reviews, and reviewer decisions. Local history is stored in
 `financial-engine/data/dashboard_monitoring.sqlite3` and survives dashboard
