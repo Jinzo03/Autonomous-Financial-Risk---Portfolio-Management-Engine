@@ -59,6 +59,13 @@ def get_compiled_graph():
     return create_multi_agent_graph()
 
 
+@st.cache_resource
+def get_rag_engine():
+    from src.llm_pipeline.rag_engine import FinancialRAGEngine
+
+    return FinancialRAGEngine()
+
+
 @st.cache_data(ttl=15, show_spinner=False)
 def check_services() -> dict[str, bool]:
     """Check that the prediction API and configured Qdrant collection respond."""
@@ -123,7 +130,11 @@ with st.sidebar:
         check_services.clear()
         st.rerun()
 
-    page = st.radio("Dashboard", ["Assessment", "Monitoring"], key="dashboard_page")
+    page = st.radio(
+        "Dashboard",
+        ["Assessment", "Ask about a stock", "Monitoring"],
+        key="dashboard_page",
+    )
 
 
 if page == "Monitoring":
@@ -190,6 +201,144 @@ if page == "Monitoring":
         table = visible_records[list(display_columns)].rename(columns=display_columns).copy()
         table["Created (UTC)"] = table["Created (UTC)"].dt.strftime("%Y-%m-%d %H:%M:%S")
         st.dataframe(table, use_container_width=True, hide_index=True)
+    st.stop()
+
+if page == "Ask about a stock":
+    st.title("Ask about a stock")
+    st.caption(
+        "Ask questions about indexed company filings. Answers are grounded in those "
+        "filings and include citations; this chat does not provide live prices or news."
+    )
+
+    active_snapshot = st.session_state.get("active_snapshot") or {}
+    default_qa_ticker = active_snapshot.get("ticker", "AAPL")
+    ticker_col, clear_col = st.columns([3, 1])
+    with ticker_col:
+        qa_ticker_input = st.text_input(
+            "Ticker symbol",
+            value=default_qa_ticker,
+            max_chars=12,
+            key="qa_ticker_input",
+        ).strip().upper()
+    with clear_col:
+        st.write("")
+        clear_chat = st.button("Clear chat", use_container_width=True)
+
+    if not TICKER_PATTERN.fullmatch(qa_ticker_input):
+        st.error("Enter a valid ticker using letters, numbers, dots, or hyphens.")
+        st.stop()
+
+    if st.session_state.get("qa_active_ticker") != qa_ticker_input:
+        st.session_state["qa_active_ticker"] = qa_ticker_input
+        st.session_state["qa_messages"] = []
+    if clear_chat:
+        st.session_state["qa_messages"] = []
+
+    if active_snapshot.get("ticker") == qa_ticker_input:
+        assessment = active_snapshot
+        model_probability = (assessment.get("quant_report") or {}).get("risk_probability")
+        result_col, score_col, status_col = st.columns(3)
+        result_col.metric("Current session assessment", assessment.get("risk_level") or "UNKNOWN")
+        score_col.metric(
+            "Model risk probability",
+            f"{model_probability:.1%}"
+            if _is_number(model_probability)
+            else "Unavailable",
+        )
+        status_col.metric(
+            "Workflow status",
+            (assessment.get("final_verdict") or {}).get("final_status")
+            or ("Pending review" if "human_governance" in st.session_state.get("active_next", ()) else "In progress"),
+        )
+        st.caption("Assessment metrics are shown separately and are not filing citations.")
+
+    for message in st.session_state.get("qa_messages", []):
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+            if message["role"] == "assistant":
+                if message.get("model"):
+                    st.caption(f"Generated with {message['model']}")
+                sources = message.get("sources") or []
+                if sources:
+                    with st.expander("Filing sources"):
+                        for source in sources:
+                            source_name = (
+                                source.get("source_path")
+                                or source.get("doc_id")
+                                or "Indexed filing"
+                            )
+                            location = source.get("page_number") or source.get("section")
+                            st.write(
+                                f"**{source.get('citation', '')} {source_name}**"
+                                + (f" · {location}" if location else "")
+                            )
+                            if _is_number(source.get("score")):
+                                st.caption(
+                                    f"Retrieval similarity: {source['score']:.3f} "
+                                    "(relevance signal, not confidence)."
+                                )
+
+    question = st.chat_input("Ask a question about this company’s filings")
+    if question:
+        question = question.strip()
+        if not question:
+            st.warning("Enter a question first.")
+        elif len(question) > 2000:
+            st.warning("Keep questions under 2,000 characters.")
+        else:
+            conversation_history = list(st.session_state["qa_messages"])
+            st.session_state["qa_messages"].append(
+                {"role": "user", "content": question}
+            )
+            with st.chat_message("user"):
+                st.markdown(question)
+            try:
+                with st.spinner("Searching filings and drafting a cited answer…"):
+                    answer_result = get_rag_engine().generate_answer(
+                        query=question,
+                        ticker=qa_ticker_input,
+                        top_k=4,
+                        conversation_history=conversation_history,
+                    )
+                answer_message = {
+                    "role": "assistant",
+                    "content": answer_result["answer"],
+                    "sources": answer_result.get("sources", []),
+                    "model": answer_result.get("model"),
+                }
+            except Exception:
+                logger.exception("Stock Q&A failed for %s", qa_ticker_input)
+                answer_message = {
+                    "role": "assistant",
+                    "content": (
+                        "I couldn’t answer that right now. Check that the filing index "
+                        "is available and GEMINI_API_KEY is configured."
+                    ),
+                    "sources": [],
+                }
+            st.session_state["qa_messages"].append(answer_message)
+            with st.chat_message("assistant"):
+                st.markdown(answer_message["content"])
+                if answer_message.get("model"):
+                    st.caption(f"Generated with {answer_message['model']}")
+                if answer_message["sources"]:
+                    with st.expander("Filing sources"):
+                        for source in answer_message["sources"]:
+                            source_name = (
+                                source.get("source_path")
+                                or source.get("doc_id")
+                                or "Indexed filing"
+                            )
+                            location = source.get("page_number") or source.get("section")
+                            st.write(
+                                f"**{source.get('citation', '')} {source_name}**"
+                                + (f" · {location}" if location else "")
+                            )
+                            if _is_number(source.get("score")):
+                                st.caption(
+                                    f"Retrieval similarity: {source['score']:.3f} "
+                                    "(relevance signal, not confidence)."
+                                )
     st.stop()
 
 st.title("Financial Risk Assessment")

@@ -38,6 +38,12 @@ When the risk level requires review, the dashboard pauses and offers explicit
 approve/reject controls. Rejecting requires a note. Approval records clearance
 for execution only; the workflow does not place trades.
 
+The **Ask about a stock** view lets users ask ticker-filtered questions about
+indexed filings before or after an assessment. Answers include filing citations
+and can use recent chat turns to resolve follow-up questions. This view does not
+provide live stock prices or current news, and assessment metrics are displayed
+separately from filing evidence.
+
 Use the dashboard's **Monitoring** view to review recent assessments, risk-score
 trends, pending reviews, and reviewer decisions. Local history is stored in
 `financial-engine/data/dashboard_monitoring.sqlite3` and survives dashboard
