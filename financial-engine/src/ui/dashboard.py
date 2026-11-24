@@ -101,6 +101,36 @@ def check_services() -> dict[str, bool]:
     return {"mlops": mlops_ok, "qdrant": qdrant_ok, "mlflow": mlflow_ok}
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def get_indexed_tickers() -> tuple[str, ...]:
+    """Read distinct ticker metadata from the configured filing collection."""
+    client = create_qdrant_client()
+    try:
+        if not client.collection_exists(COLLECTION_NAME):
+            return ()
+
+        tickers: set[str] = set()
+        offset = None
+        while True:
+            points, offset = client.scroll(
+                collection_name=COLLECTION_NAME,
+                limit=500,
+                offset=offset,
+                with_payload=["ticker"],
+                with_vectors=False,
+            )
+            tickers.update(
+                str(point.payload["ticker"]).strip().upper()
+                for point in points
+                if point.payload and point.payload.get("ticker")
+            )
+            if offset is None:
+                break
+        return tuple(sorted(tickers))
+    finally:
+        client.close()
+
+
 def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
@@ -128,6 +158,7 @@ with st.sidebar:
     st.caption("News search runs during an assessment. Search sentiment is not scored.")
     if st.button("Refresh service status", use_container_width=True):
         check_services.clear()
+        get_indexed_tickers.clear()
         st.rerun()
 
     page = st.radio(
@@ -211,22 +242,43 @@ if page == "Ask about a stock":
     )
 
     active_snapshot = st.session_state.get("active_snapshot") or {}
-    default_qa_ticker = active_snapshot.get("ticker", "AAPL")
-    ticker_col, clear_col = st.columns([3, 1])
+    try:
+        indexed_tickers = get_indexed_tickers()
+    except Exception:
+        logger.exception("Could not read indexed filing tickers")
+        st.error("Could not read the filing index. Check Qdrant service status.")
+        st.stop()
+
+    if not indexed_tickers:
+        st.error("No filing chunks are indexed yet. Add filings and run the indexer first.")
+        st.code("docker compose run --rm index-filings", language="powershell")
+        st.stop()
+
+    active_ticker = str(active_snapshot.get("ticker", "")).strip().upper()
+    if active_ticker and active_ticker not in indexed_tickers:
+        st.info(
+            f"The current assessment is for {active_ticker}, but the filing index has "
+            f"no documents for it. Indexed tickers: {', '.join(indexed_tickers)}."
+        )
+
+    ticker_col, refresh_col, clear_col = st.columns([3, 1, 1])
     with ticker_col:
-        qa_ticker_input = st.text_input(
-            "Ticker symbol",
-            value=default_qa_ticker,
-            max_chars=12,
-            key="qa_ticker_input",
-        ).strip().upper()
+        default_index = indexed_tickers.index(active_ticker) if active_ticker in indexed_tickers else 0
+        qa_ticker_input = st.selectbox(
+            "Ticker with indexed filings",
+            indexed_tickers,
+            index=default_index,
+        )
+    with refresh_col:
+        st.write("")
+        refresh_index = st.button("Refresh tickers", use_container_width=True)
     with clear_col:
         st.write("")
         clear_chat = st.button("Clear chat", use_container_width=True)
 
-    if not TICKER_PATTERN.fullmatch(qa_ticker_input):
-        st.error("Enter a valid ticker using letters, numbers, dots, or hyphens.")
-        st.stop()
+    if refresh_index:
+        get_indexed_tickers.clear()
+        st.rerun()
 
     if st.session_state.get("qa_active_ticker") != qa_ticker_input:
         st.session_state["qa_active_ticker"] = qa_ticker_input
