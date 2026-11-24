@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 
@@ -27,6 +27,8 @@ SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 ARCHIVES_BASE_URL = "https://www.sec.gov/Archives/edgar/data"
 CACHE_MAX_AGE = timedelta(days=7)
 REQUEST_INTERVAL_SECONDS = 0.12
+SEC_REQUEST_TIMEOUT = (10, 45)
+SEC_REQUEST_ATTEMPTS = 3
 
 _request_lock = threading.Lock()
 _last_request_at = 0.0
@@ -48,18 +50,59 @@ def _user_agent() -> str:
 
 def _get(session: requests.Session, url: str) -> requests.Response:
     global _last_request_at
-    with _request_lock:
-        delay = REQUEST_INTERVAL_SECONDS - (time.monotonic() - _last_request_at)
-        if delay > 0:
+    last_error: Exception | None = None
+    for attempt in range(SEC_REQUEST_ATTEMPTS):
+        with _request_lock:
+            delay = REQUEST_INTERVAL_SECONDS - (time.monotonic() - _last_request_at)
+            if delay > 0:
+                time.sleep(delay)
+            try:
+                response = session.get(url, timeout=SEC_REQUEST_TIMEOUT)
+            except requests.RequestException as exc:
+                response = None
+                last_error = exc
+            finally:
+                _last_request_at = time.monotonic()
+
+        if response is not None:
+            if response.status_code == 403:
+                raise SECFilingError(
+                    "The SEC denied the request. Check SEC_USER_AGENT and try again later."
+                )
+            if response.status_code == 429 or response.status_code >= 500:
+                last_error = requests.HTTPError(
+                    f"SEC returned HTTP {response.status_code}", response=response
+                )
+                retry_after = response.headers.get("Retry-After", "")
+                try:
+                    delay = min(max(float(retry_after), 0), 15)
+                except ValueError:
+                    delay = 2**attempt
+            else:
+                try:
+                    response.raise_for_status()
+                    return response
+                except requests.RequestException as exc:
+                    raise SECFilingError(
+                        f"SEC EDGAR returned an error while fetching {urlsplit(url).netloc}."
+                    ) from exc
+        else:
+            delay = 2**attempt
+
+        if attempt + 1 < SEC_REQUEST_ATTEMPTS:
+            logger.warning(
+                "Transient SEC request failure for %s (attempt %d/%d); retrying in %.1fs",
+                url,
+                attempt + 1,
+                SEC_REQUEST_ATTEMPTS,
+                delay,
+            )
             time.sleep(delay)
-        response = session.get(url, timeout=(5, 30))
-        _last_request_at = time.monotonic()
-    if response.status_code == 403:
-        raise SECFilingError(
-            "The SEC denied the request. Check SEC_USER_AGENT and try again later."
-        )
-    response.raise_for_status()
-    return response
+
+    raise SECFilingError(
+        "SEC EDGAR did not respond after several attempts. Check the container's "
+        "internet/DNS access and try again."
+    ) from last_error
 
 
 @lru_cache(maxsize=4)
