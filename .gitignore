@@ -7,6 +7,7 @@ financial-engine/data/*
 !financial-engine/data/filings/
 !financial-engine/data/filings/**
 financial-engine/mlartifacts/
+financial-engine/mlflow.db
 financial-engine/src/__pycache__
 financial-engine/src/llm_pipeline/data/qdrant_db/
 **/__pycache__/
