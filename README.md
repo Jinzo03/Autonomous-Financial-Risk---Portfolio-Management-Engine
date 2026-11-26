@@ -7,7 +7,10 @@ It does not place trades.
 
 
 
-https://github.com/user-attachments/assets/13a3da14-aaea-415e-8af4-743e2535591f
+
+
+https://github.com/user-attachments/assets/db15ba28-23dd-4543-bf7e-664d891b8a1a
+
 
 
 
