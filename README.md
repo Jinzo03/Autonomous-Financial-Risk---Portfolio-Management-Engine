@@ -9,6 +9,8 @@ It does not place trades.
 
 
 
+## Demo
+
 https://github.com/user-attachments/assets/db15ba28-23dd-4543-bf7e-664d891b8a1a
 
 
@@ -26,6 +28,29 @@ https://github.com/user-attachments/assets/db15ba28-23dd-4543-bf7e-664d891b8a1a
   review. Approval is a workflow decision only; no trade is placed.
 - **Monitoring:** records assessment summaries and review decisions locally and
   displays their history in the dashboard.
+
+## Agentic AI assessment workflow
+
+The assessment workflow is a LangGraph state graph. Three specialist nodes run
+in parallel, add their reports to shared workflow state, and pass the results to
+the lead risk orchestrator. The nodes use explicit tools and rules; they do not
+autonomously choose tools or negotiate with one another. Gemini is used for the
+separate, cited stock Q&A experience.
+
+| Role | Responsibility | How its output is used |
+| --- | --- | --- |
+| **Quantitative Risk Agent** | Calls the prediction API, which retrieves Feast features and returns the XGBoost risk probability and feature values. | Required input to the composite risk score. If unavailable, the assessment is blocked. |
+| **Filing Audit Agent** | Searches the existing Qdrant index for up to two ticker-filtered SEC filing chunks about supply-chain, litigation, and regulatory risk. | Shows qualitative evidence for the reviewer. These passages do not currently change the numeric score, and this agent does not fetch filings itself. |
+| **Market Sentiment Agent** | Searches the web for recent company news and returns headlines, snippets, and links. | Provides context for the reviewer. News is not sentiment-scored, so it does not change the numeric score. |
+| **Lead Risk Orchestrator** | Checks that a valid quantitative score exists, combines it with a separately supplied sentiment score if one exists, assigns a risk level, and decides whether review is required. | Blocks the workflow if the quantitative score is missing. Otherwise, scores at or above 0.50 require human review; at or above 0.70 are Critical. With the current unscored news tool, the composite score is the quantitative probability. |
+| **Human Governance** | Pauses high and critical assessments and waits for an explicit reviewer approval or rejection. | A rejection blocks clearance and records the review note. Checkpoints are in memory and are lost if the dashboard restarts. |
+| **Execution / Decision Node** | Checks the quantitative result and review decision, then writes the final workflow status and summary. | It does not place orders or execute trades; “ready” and “approved” are workflow statuses only. |
+
+The first three roles run concurrently, then the orchestrator routes the result
+to human review when the score requires it. Low and medium scores proceed
+directly to the final decision node. The filing and news reports remain visible
+as evidence even though the current scoring logic does not treat them as
+validated numeric risk signals.
 
 ```mermaid
 flowchart LR
