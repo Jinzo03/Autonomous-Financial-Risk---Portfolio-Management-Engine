@@ -5,7 +5,11 @@ model, SEC filing retrieval, web search, review controls, and an operations
 dashboard. It is a learning/demo project, not a production investment system.
 It does not place trades.
 
-[Watch the demo](docs/Financial-Risk-Engine-Demo.mp4).
+
+
+https://github.com/user-attachments/assets/13a3da14-aaea-415e-8af4-743e2535591f
+
+
 
 ## What it does
 
