@@ -3,7 +3,9 @@ financial-engine/.env
 financial-engine/.env.*
 !financial-engine/.env.example
 financial-engine/__pycache__
-financial-engine/data
+financial-engine/data/*
+!financial-engine/data/filings/
+!financial-engine/data/filings/**
 financial-engine/mlartifacts/
 financial-engine/src/__pycache__
 financial-engine/src/llm_pipeline/data/qdrant_db/

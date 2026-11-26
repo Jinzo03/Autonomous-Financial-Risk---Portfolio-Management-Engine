@@ -23,13 +23,13 @@ from sklearn.metrics import (
 # Configuration
 # ============================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_DATA_PATH = (
     PROJECT_ROOT
     / "data"
-    / "silver"
-    / "market_risk_features.parquet"
+    / "gold"
+    / "risk_training_dataset.parquet"
 )
 
 EXPERIMENT_NAME = "market_risk_assessment"
@@ -39,9 +39,6 @@ MLFLOW_TRACKING_URI = os.getenv(
     "MLFLOW_TRACKING_URI",
     "http://localhost:5000"
 )
-
-# Set RISK_LABEL_THRESHOLD to override the data-driven median cutoff.
-RISK_LABEL_THRESHOLD_OVERRIDE = os.getenv("RISK_LABEL_THRESHOLD")
 
 FEATURE_COLUMNS = [
     "price",
@@ -76,7 +73,9 @@ def load_and_validate_data(data_path: Path) -> pd.DataFrame:
     df = pd.read_parquet(data_path)
 
     required_columns = FEATURE_COLUMNS + [
-        "composite_risk_feature"
+        "composite_risk_feature",
+        "target_high_risk",
+        "risk_label_threshold",
     ]
 
     missing_columns = [
@@ -118,20 +117,15 @@ def load_and_validate_data(data_path: Path) -> pd.DataFrame:
             "No valid training samples available."
         )
 
-    # Use the median composite risk as the default decision boundary so the
-    # target is approximately balanced. An environment override is useful for
-    # experiments that need a fixed, comparable threshold.
-    risk_label_threshold = (
-        float(RISK_LABEL_THRESHOLD_OVERRIDE)
-        if RISK_LABEL_THRESHOLD_OVERRIDE is not None
-        else float(df["composite_risk_feature"].median())
-    )
+    target_values = set(df[TARGET_COLUMN].unique())
+    if not target_values.issubset({0, 1}):
+        raise ValueError("Gold target_high_risk values must be binary (0 or 1).")
+    df[TARGET_COLUMN] = df[TARGET_COLUMN].astype("int8")
 
-    # Construct binary classification target
-    df[TARGET_COLUMN] = (
-        df["composite_risk_feature"]
-        > risk_label_threshold
-    ).astype(int)
+    thresholds = df["risk_label_threshold"].unique()
+    if len(thresholds) != 1:
+        raise ValueError("Gold dataset must contain one consistent risk label threshold.")
+    risk_label_threshold = float(thresholds[0])
     df.attrs["risk_label_threshold"] = risk_label_threshold
 
     class_counts = df[TARGET_COLUMN].value_counts()

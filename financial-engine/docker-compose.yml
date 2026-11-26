@@ -111,11 +111,19 @@ services:
     command:
       - sh
       - -c
-      - python -m src.ml_pipeline.train && python -m src.ml_pipeline.set_alias
+      - >-
+        python -m src.data_pipeline.ingest
+        && python -m src.data_pipeline.transform
+        && python -m src.data_pipeline.validate
+        && python -m src.data_pipeline.gold
+        && python -m src.data_pipeline.materialize_features
+        && python -m src.ml_pipeline.train
+        && python -m src.ml_pipeline.set_alias
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
-      - ./data:/app/data:ro
+      - ./data:/app/data
+      - ./src/data_pipeline/feast_repo/data:/app/src/data_pipeline/feast_repo/data
     depends_on:
       mlflow:
         condition: service_healthy
