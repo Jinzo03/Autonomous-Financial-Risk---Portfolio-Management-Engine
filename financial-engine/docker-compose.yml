@@ -121,6 +121,7 @@ services:
         && python -m src.ml_pipeline.set_alias
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      RISK_LABEL_THRESHOLD: ${RISK_LABEL_THRESHOLD:-}
     volumes:
       - ./data:/app/data
       - ./src/data_pipeline/feast_repo/data:/app/src/data_pipeline/feast_repo/data

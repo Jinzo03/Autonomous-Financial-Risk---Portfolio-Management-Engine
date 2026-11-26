@@ -43,10 +43,10 @@ def build_gold_dataset(
         raise ValueError("Silver dataset has no valid rows for model training.")
 
     if risk_label_threshold is None:
-        override = os.getenv("RISK_LABEL_THRESHOLD")
+        override = os.getenv("RISK_LABEL_THRESHOLD", "").strip()
         risk_label_threshold = (
             float(override)
-            if override is not None
+            if override
             else float(frame["composite_risk_feature"].median())
         )
     if not np.isfinite(risk_label_threshold):

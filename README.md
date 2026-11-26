@@ -1,93 +1,225 @@
-**Autonomous Financial Risk & Portfolio Management Engine**
+# Autonomous Financial Risk & Portfolio Management Engine
 
-## Gemini RAG answers
+A local demonstration of a financial-risk workflow that combines a quantitative
+model, SEC filing retrieval, web search, review controls, and an operations
+dashboard. It is a learning/demo project, not a production investment system.
+It does not place trades.
 
-The LLM pipeline reads Gemini settings from `financial-engine/.env`. Add your
-Google AI Studio key as `GEMINI_API_KEY`; `financial-engine/.env.example`
-contains the available settings. The real `.env` file is ignored by Git.
+[Watch the demo](docs/Financial-Risk-Engine-Demo.mp4).
 
-Install the project dependencies from `financial-engine`, then index documents
-and run the retrieval engine:
+## What it does
 
-```powershell
-.\venv\Scripts\python.exe -m pip install -r requirements.txt
-.\venv\Scripts\python.exe -m src.llm_pipeline.vector_store .\data\filings
-.\venv\Scripts\python.exe -m src.llm_pipeline.rag_engine
+- **Risk assessment:** gets sample market features from Feast, scores them with
+  an XGBoost model registered in MLflow, retrieves supporting filing passages,
+  and searches recent news.
+- **Stock Q&A:** retrieves ticker-filtered evidence from Qdrant and generates
+  cited answers with Gemini. For an unindexed ticker, it can fetch recent public
+  SEC filings, cache them, and index their text automatically.
+- **Human review:** lets a reviewer approve or reject assessments that require
+  review. Approval is a workflow decision only; no trade is placed.
+- **Monitoring:** records assessment summaries and review decisions locally and
+  displays their history in the dashboard.
+
+```mermaid
+flowchart LR
+    A[Bronze: generated market ticks] --> B[Silver: cleaned features]
+    B --> C[Gold: labeled training data]
+    B --> D[Feast online store]
+    C --> E[XGBoost training]
+    E --> F[MLflow model registry]
+    D --> G[Prediction API]
+    F --> G
+    H[SEC filings and sample PDF] --> I[Chunking and embeddings]
+    I --> J[Qdrant]
+    G --> K[Dashboard and review]
+    J --> K
+    L[Web search] --> K
+    K --> M[Gemini cited stock Q&A]
 ```
 
-`FinancialRAGEngine.generate_answer()` returns a grounded answer and a list of
-source citations. Set `GEMINI_MODEL`, `GEMINI_TEMPERATURE`, or
-`GEMINI_MAX_OUTPUT_TOKENS` in `.env` to change generation settings.
-The Primary model is Gemini 4 Hydrogen. The default model fallback order is Gemini 3.8 Flash, 3.6 Flash, then 2.5 Flash;
-set `GEMINI_FALLBACK_MODELS` to customize the fallback sequence.
+## Requirements
 
-## Risk assessment dashboard
+- Docker Desktop with Docker Compose
+- A Google AI Studio API key for Gemini-generated Q&A
+- A contact email for automatic SEC EDGAR downloads
 
-From `financial-engine`, start the local dashboard with:
+The dashboard and local services run in containers. No local Python virtual
+environment is required for the Docker workflow.
 
-```powershell
-.\venv\Scripts\python.exe -m streamlit run src/ui/dashboard.py
-```
+## First run
 
-The dashboard displays the quantitative model output, retrieved filing chunks,
-and recent news results. It reports whether the prediction API, Qdrant index,
-and MLflow UI are reachable. News sentiment is explicitly unscored. The local
-Streamlit file watcher is disabled to avoid noisy optional `torchvision`
-imports from Transformers; restart the dashboard manually after editing code.
-When the risk level requires review, the dashboard pauses and offers explicit
-approve/reject controls. Rejecting requires a note. Approval records clearance
-for execution only; the workflow does not place trades.
-
-The **Ask about a stock** view lets users ask ticker-filtered questions about
-indexed filings before or after an assessment. Answers include filing citations
-and can use recent chat turns to resolve follow-up questions. This view does not
-provide live stock prices or current news, and assessment metrics are displayed
-separately from filing evidence.
-
-For a ticker that is not indexed, the dashboard can fetch its latest annual and
-interim SEC filings, cache them in `financial-engine/data/sec_filings`, and add
-their chunks to Qdrant automatically. Set `SEC_USER_AGENT` in `.env` once to an
-application name and a real contact email, as requested by the SEC for automated
-access. SEC filings are public and this lookup does not require an API key.
-
-Use the dashboard's **Monitoring** view to review recent assessments, risk-score
-trends, pending reviews, and reviewer decisions. Local history is stored in
-`financial-engine/data/dashboard_monitoring.sqlite3` and survives dashboard
-restarts. It contains assessment summaries and review notes; an in-progress
-human-review checkpoint itself is still held in memory and cannot be resumed
-after a dashboard process restart. The monitoring view does not measure model
-accuracy or drift because verified outcome labels are not yet collected.
-
-## Run the full stack with Docker
-
-From `financial-engine`, start the dashboard, prediction API, MLflow, and Qdrant
-with one command:
+From PowerShell at the repository root:
 
 ```powershell
-docker compose up --build
+Set-Location .\financial-engine
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-Container builds use `financial-engine/requirements-container.txt` instead of
-installing the full local development set. Spark/Delta extras are omitted from
-the service image, and embeddings use the CPU-only PyTorch wheel; Docker caches
-pip downloads for later rebuilds.
+Edit `financial-engine/.env` and set:
 
-Open the dashboard at <http://localhost:8501>. MLflow is at
-<http://localhost:5000>, the prediction API docs are at
-<http://localhost:8000/docs>, and Qdrant is at <http://localhost:6333/dashboard>.
-The startup process indexes the PDFs in `financial-engine/data/filings` into
-Qdrant. Stop the stack with Ctrl+C; `docker compose down` also stops it while
-preserving Qdrant and downloaded embedding-model data.
+```dotenv
+GEMINI_API_KEY=your_google_ai_studio_key
+SEC_USER_AGENT=FinancialRiskDashboard your-real-email@example.com
+```
 
-Docker Desktop must be running. The compose setup reuses the local
-`mlflow.db`, `mlartifacts`, Feast online-store files, and feature parquet data.
-If the champion model artifacts are missing, train and promote a model once
-from `financial-engine` with:
+The SEC contact is needed only when the app downloads filings automatically.
+The Gemini key is needed to generate natural-language Q&A answers. Keep `.env`
+private; it is excluded from Git.
+
+Build and train the demo model once before starting the full application:
 
 ```powershell
 docker compose --profile training run --build --rm train-model
+docker compose up --build -d
 ```
 
-Then start the regular stack with `docker compose up --build`.
+The training command generates the demo market data, builds the Silver and Gold
+datasets, validates Silver, registers and materializes Feast features, trains
+XGBoost, and promotes the new model as the MLflow `champion` alias. It writes
+runtime data and model artifacts under `financial-engine/data/` and
+`financial-engine/mlartifacts/` on the host.
 
-Project still in progress
+The regular Compose stack starts the prediction API, dashboard, MLflow, Qdrant,
+and a one-shot job that indexes the sample filing in
+`financial-engine/data/filings/`.
+
+## Open the application
+
+- Dashboard: <http://localhost:8501>
+- Prediction API documentation: <http://localhost:8000/docs>
+- MLflow: <http://localhost:5000>
+- Qdrant dashboard: <http://localhost:6333/dashboard>
+
+In the dashboard, **Assessment** runs the risk workflow, **Ask about a stock**
+answers questions grounded in a ticker's filings, and **Monitoring** shows
+assessment and review history. For a new ticker, the first Q&A request triggers
+the SEC filing download and indexing flow. The sample PDF currently covers
+NEXA. The retrieval pipeline supports selectable-text PDF, HTML, CSV, Markdown,
+and text files; it does not OCR scanned PDFs.
+
+Check service state and logs from `financial-engine`:
+
+```powershell
+docker compose ps
+docker compose logs -f dashboard
+```
+
+Stop services while retaining the Qdrant and embedding-model volumes:
+
+```powershell
+docker compose down
+```
+
+`docker compose down -v` also deletes named Docker volumes, including the local
+Qdrant index and downloaded embedding model cache.
+
+## Data pipeline
+
+The market-data pipeline is:
+
+1. **Bronze** — `src/data_pipeline/ingest.py` generates synthetic
+   market ticks for AAPL, GOOGL, MSFT, AMZN, and NVDA.
+2. **Silver** — `src/data_pipeline/transform.py` cleans and adds rolling-volume,
+   price-change, and composite-risk features. `validate.py` checks required
+   values and ranges.
+3. **Gold** — `src/data_pipeline/gold.py` selects model inputs, creates the
+   binary `target_high_risk` label using the median composite-risk value by
+   default, and records the threshold in the training dataset. Set
+   `RISK_LABEL_THRESHOLD` to choose a fixed threshold for a run.
+4. **Online serving** — `src/data_pipeline/materialize_features.py` registers
+   Feast definitions and materializes Silver feature rows into the SQLite online
+   store used by the prediction API.
+5. **Training and registry** — `src/ml_pipeline/train.py` trains the model from
+   Gold and logs metrics and model artifacts to MLflow. `set_alias.py` promotes
+   the latest registered version to `champion`.
+
+Gold is generated output and stays out of Git. The sample PDF is included in
+the repository. Downloaded SEC filings, monitoring and Feast databases,
+generated parquet files, and MLflow model artifacts are local runtime data.
+The repository still contains a tracked `financial-engine/mlflow.db` metadata
+snapshot; run the training bootstrap above to register model artifacts for a
+checkout before starting the prediction API. That database snapshot should be
+removed from Git before publishing a clean release.
+
+## SEC filings and retrieval
+
+The Q&A view retrieves only chunks matching the selected ticker and includes
+source citations. If no indexed chunks exist, it looks up the ticker in SEC
+EDGAR, fetches the latest annual and interim filings it supports, caches them
+under `financial-engine/data/sec_filings/`, then indexes them in Qdrant. The SEC
+cache is considered fresh for seven days. Use **Refresh SEC filings** to check
+for newer filings for a ticker that is already indexed.
+The app uses the public SEC filing APIs and does not require an SEC API key.
+
+The SEC requires automated clients to identify themselves. Set
+`SEC_USER_AGENT` to an application name and a valid contact address, and follow
+the SEC's [fair access guidance](https://www.sec.gov/about/webmaster-frequently-asked-questions).
+The SEC API details are documented
+[here](https://www.sec.gov/search-filings/edgar-application-programming-interfaces).
+
+Q&A answers are generated from retrieved filing excerpts, with citation markers
+and links to SEC sources where available. It does not supply live stock prices,
+price forecasts, or current news answers. News results appear in the assessment
+workflow and are not scored as sentiment.
+
+## Configuration
+
+`financial-engine/.env.example` lists supported environment settings. Common
+options include:
+
+| Variable | Purpose |
+| --- | --- |
+| `GEMINI_API_KEY` | Google AI Studio API key for generated Q&A |
+| `GEMINI_MODEL` | Primary Gemini model ID |
+| `GEMINI_FALLBACK_MODELS` | Comma-separated fallback model IDs |
+| `GEMINI_TEMPERATURE` | Generation temperature where supported |
+| `GEMINI_MAX_OUTPUT_TOKENS` | Maximum generated answer length |
+| `SEC_USER_AGENT` | SEC client identification and contact address |
+| `QDRANT_COLLECTION` | Qdrant collection name |
+| `SENTENCE_TRANSFORMER_MODEL` | Embedding model used for indexing and retrieval |
+| `WEB_SEARCH_MAX_RESULTS` | Maximum search results for an assessment |
+| `RISK_LABEL_THRESHOLD` | Optional fixed Silver-to-Gold label cutoff; defaults to the median |
+
+Google's [Gemini API model documentation](https://ai.google.dev/gemini-api/docs/models)
+currently marks Gemini 2.5 Flash as a legacy model: access is limited to existing
+users, with API requests routing to Gemini 3.5 Flash-Lite from December 1, 2026.
+The example fallback list retains Gemini 2.5 Flash for compatibility with
+existing users; replace it with `gemini-3.5-flash-lite` for a new setup.
+
+## Limitations
+
+- Market ticks are generated synthetic values, not live or historical market
+  prices. The risk labels are derived from a composite feature rather than
+  verified future outcomes, so training metrics do not demonstrate real-world
+  predictive performance.
+- Online Feast features only exist for the generated sample tickers unless the
+  ingestion pipeline is connected to a real market data source.
+- SEC filings describe company disclosures; they do not guarantee that retrieval
+  finds every relevant passage. Answers should be checked against their cited
+  filings.
+- Human-review checkpoints are held in memory and do not survive a dashboard
+  process restart. Assessment summaries and review notes are stored in a local
+  SQLite database, but the Monitoring page does not measure accuracy or drift
+  because verified outcomes are not collected.
+- The project is a local demo, not a regulated financial service. Do not use its
+  outputs as investment advice or automated trading instructions.
+
+## Tests
+
+For local development, create a virtual environment and install dependencies
+from `financial-engine`:
+
+```powershell
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Then run the unit tests:
+
+```powershell
+.\venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Some integration tests require local Feast, MLflow, Qdrant, model, or API
+configuration. The Docker workflow is the intended way to run all services
+together.
